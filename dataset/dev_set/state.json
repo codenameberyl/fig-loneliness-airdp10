@@ -1,0 +1,23 @@
+{
+  "_data_files": [
+    {
+      "filename": "dataset.arrow"
+    }
+  ],
+  "_fingerprint": "533f3f0d5018a5c0",
+  "_format_columns": [
+    "context_pri",
+    "idx",
+    "interaction",
+    "interpersonal_pri",
+    "lonely",
+    "temporal",
+    "text",
+    "unique_id"
+  ],
+  "_format_kwargs": {},
+  "_format_type": null,
+  "_indexes": {},
+  "_output_all_columns": false,
+  "_split": "train"
+}
