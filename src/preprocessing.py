@@ -31,7 +31,7 @@ def load_fig_loneliness(root_path: str) -> DatasetDict:
     train_set = load_from_disk(os.path.join(root_path, "train_set"))
     dev_set = load_from_disk(os.path.join(root_path, "dev_set"))
     test_set = load_from_disk(os.path.join(root_path, "test_set"))
-
+ 
     return DatasetDict({
         "train": train_set,
         "validation": dev_set,

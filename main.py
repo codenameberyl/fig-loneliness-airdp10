@@ -20,10 +20,10 @@ def main():
     print(dataset["train"].column_names)
 
     processed_dataset = apply_preprocessing(dataset)
-    run_eda(processed_dataset)
 
     validate_dataset(processed_dataset, num_samples_to_print=2)
 
+    run_eda(processed_dataset)
 
 if __name__ == "__main__":
     main()
