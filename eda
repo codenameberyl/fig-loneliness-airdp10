@@ -1,0 +1,159 @@
+# EDA module for FIG-Loneliness dataset.
+
+import numpy as np
+import matplotlib.pyplot as plt
+from collections import Counter
+from sklearn.feature_extraction.text import CountVectorizer
+
+
+def run_eda(dataset):
+    
+    #Run full exploratory data analysis on training split.
+    
+    train_data = dataset["train"]
+
+    print("\n========== EDA: TRAINING SET ==========")
+
+    label_distribution(train_data)
+    text_length_analysis(train_data)
+    word_frequency_analysis(train_data)
+    bigram_analysis(train_data)
+    pronoun_analysis(train_data)
+    annotation_marker_analysis(train_data)
+
+
+
+def label_distribution(train_data):
+    print("\n--- Label Distribution ---")
+
+    labels = train_data["label"]
+    counts = Counter(labels)
+
+    total = len(labels)
+    for label, count in counts.items():
+        print(f"Label {label}: {count} ({count/total:.2%})")
+
+
+def text_length_analysis(train_data):
+    print("\n--- Text Length Analysis ---")
+
+    lonely_lengths = []
+    non_lonely_lengths = []
+
+    for example in train_data:
+        length = len(example["text_clean"].split())
+
+        if example["label"] == 1:
+            lonely_lengths.append(length)
+        else:
+            non_lonely_lengths.append(length)
+
+    print("Average length (lonely):", np.mean(lonely_lengths))
+    print("Average length (non-lonely):", np.mean(non_lonely_lengths))
+
+
+def word_frequency_analysis(train_data):
+    print("\n--- Top Words by Class ---")
+
+    lonely_texts = [
+        x["text_clean"] for x in train_data if x["label"] == 1
+    ]
+
+    non_lonely_texts = [
+        x["text_clean"] for x in train_data if x["label"] == 0
+    ]
+
+    print("\nTop words (Lonely):")
+    print(get_top_words(lonely_texts))
+
+    print("\nTop words (Non-Lonely):")
+    print(get_top_words(non_lonely_texts))
+
+
+def get_top_words(texts, n=20):
+    vectorizer = CountVectorizer(max_features=1000)
+    X = vectorizer.fit_transform(texts)
+
+    word_counts = X.sum(axis=0)
+    words = vectorizer.get_feature_names_out()
+
+    word_freq = [
+        (words[i], word_counts[0, i])
+        for i in range(len(words))
+    ]
+
+    word_freq = sorted(word_freq, key=lambda x: x[1], reverse=True)
+
+    return word_freq[:n]
+
+
+
+def bigram_analysis(train_data):
+    print("\n--- Top Bigrams (Lonely Only) ---")
+
+    lonely_texts = [
+        x["text_clean"] for x in train_data if x["label"] == 1
+    ]
+
+    vectorizer = CountVectorizer(
+        ngram_range=(2, 2),
+        max_features=1000
+    )
+
+    X = vectorizer.fit_transform(lonely_texts)
+    bigram_counts = X.sum(axis=0)
+    bigrams = vectorizer.get_feature_names_out()
+
+    bigram_freq = [
+        (bigrams[i], bigram_counts[0, i])
+        for i in range(len(bigrams))
+    ]
+
+    bigram_freq = sorted(bigram_freq, key=lambda x: x[1], reverse=True)
+
+    print(bigram_freq[:20])
+
+
+def pronoun_analysis(train_data):
+    print("\n--- First-Person Pronoun Analysis ---")
+
+    lonely_counts = []
+    non_lonely_counts = []
+
+    for example in train_data:
+        count = sum(
+            1 for word in example["text_clean"].split()
+            if word in ["i", "me", "my"]
+        )
+
+        if example["label"] == 1:
+            lonely_counts.append(count)
+        else:
+            non_lonely_counts.append(count)
+
+    print("Avg first-person count (lonely):", np.mean(lonely_counts))
+    print("Avg first-person count (non-lonely):", np.mean(non_lonely_counts))
+
+
+
+def annotation_marker_analysis(train_data):
+    print("\n--- Annotation Marker Analysis ---")
+
+    markers = [
+        "context_pri",
+        "interaction",
+        "interpersonal_pri",
+        "temporal"
+    ]
+
+    for marker in markers:
+        lonely_values = [
+            x[marker] for x in train_data if x["label"] == 1
+        ]
+        non_lonely_values = [
+            x[marker] for x in train_data if x["label"] == 0
+        ]
+
+        print(f"\n{marker}:")
+        print("  Avg (lonely):", np.mean(lonely_values))
+        print("  Avg (non-lonely):", np.mean(non_lonely_values))

@@ -3,6 +3,9 @@ from src.preprocessing import (
     apply_preprocessing,
     validate_dataset
 )
+from src.eda import(
+    run_eda
+)
 
 ROOT = "./dataset/"
 
@@ -17,6 +20,7 @@ def main():
     print(dataset["train"].column_names)
 
     processed_dataset = apply_preprocessing(dataset)
+    run_eda(processed_dataset)
 
     validate_dataset(processed_dataset, num_samples_to_print=2)
 
