@@ -1,0 +1,9 @@
+datasets
+transformers
+transformers["torch"]
+pandas
+matplotlib
+seaborn
+scikit-learn
+spacy
+textblob

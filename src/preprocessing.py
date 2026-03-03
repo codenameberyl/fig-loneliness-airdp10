@@ -1,162 +1,166 @@
 """
-Preprocessing module for FIG-Loneliness dataset.
+Preprocessing utilities for the FIG-Loneliness dataset.
 
-This module:
-- Loads predefined dataset splits
-- Applies minimal text normalisation
-- Converts one-hot loneliness labels into scalar binary labels
-- Performs integrity validation checks
+Responsibilities:
+- Text cleaning and normalisation
+- Preparation for classical ML models
+- Minimal preprocessing for transformer models
+- Conversion of one-hot loneliness labels into scalar binary labels
+- Dataset integrity validation
+
+Expected dataset structure:
+    - 'text' column (string)
+    - 'lonely' column (one-hot vector: [non_lonely, lonely])
 """
 
-import os
 import re
-from datasets import load_from_disk, DatasetDict
+import numpy as np
+import pandas as pd
 
 
-def load_fig_loneliness(root_path: str) -> DatasetDict:
+# ─────────────────────────────────────────────
+# 1. Text Cleaning Utilities
+# ─────────────────────────────────────────────
+
+
+def clean_text(text: str) -> str:
     """
-    Load the FIG-Loneliness dataset from disk.
-
-    Parameters:
-    -----------
-    root_path : str
-        Path to the cloned FIG-Loneliness dataset directory.
-
-    Returns:
-    --------
-    DatasetDict
-        A DatasetDict containing train, validation, and test splits.
-    """
-
-    train_set = load_from_disk(os.path.join(root_path, "train_set"))
-    dev_set = load_from_disk(os.path.join(root_path, "dev_set"))
-    test_set = load_from_disk(os.path.join(root_path, "test_set"))
- 
-    return DatasetDict({
-        "train": train_set,
-        "validation": dev_set,
-        "test": test_set
-    })
-
-
-def basic_text_normalisation(text: str) -> str:
-    """
-    Apply minimal text preprocessing.
-
-    IMPORTANT:
-    We deliberately avoid heavy cleaning (e.g., stopword removal,
-    stemming, lemmatisation) to preserve subtle loneliness signals.
+    Perform light normalisation for classical ML models.
 
     Steps:
-    - Lowercase text
-    - Strip leading/trailing whitespace
-    - Replace URLs with <URL>
-    - Collapse multiple spaces
+        - Lowercase text
+        - Remove URLs
+        - Collapse multiple spaces
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     text : str
+        Raw input text.
 
-    Returns:
-    --------
-    str : cleaned text
+    Returns
+    -------
+    str
+        Cleaned text.
     """
-
-    if not isinstance(text, str):
-        return ""
 
     text = text.lower()
-    text = text.strip()
-
-    # Replace URLs with special placeholder token
-    text = re.sub(r"http\S+|www\S+", "<URL>", text)
-
-    # Collapse multiple spaces into single space
+    text = re.sub(r"http\S+", "", text)
     text = re.sub(r"\s+", " ", text)
+    return text.strip()
 
-    return text
 
-
-def apply_preprocessing(dataset: DatasetDict) -> DatasetDict:
+def preprocess_for_classical(text_series: pd.Series) -> pd.Series:
     """
-    Apply preprocessing to all dataset splits.
+    Apply cleaning pipeline for classical ML approaches
+    (e.g., TF-IDF + Logistic Regression).
 
-    For each example:
-    - Create 'text_clean'
-    - Convert one-hot lonely vector into scalar 'label'
+    Parameters
+    ----------
+    text_series : pd.Series
 
-    lonely format:
-        [non-lonely, lonely]
-
-    We convert:
-        label = lonely[1]
-
-    Returns:
-    --------
-    DatasetDict with added columns:
-        - text_clean
-        - label
+    Returns
+    -------
+    pd.Series
+        Cleaned text series.
     """
-
-    def process(example):
-        # Create cleaned text column (preserve original text)
-        example["text_clean"] = basic_text_normalisation(example["text"])
-
-        # Convert one-hot loneliness vector to scalar label
-        # lonely = [non-lonely, lonely]
-        example["label"] = example["lonely"][1]
-
-        return example
-
-    dataset = dataset.map(process)
-
-    # Remove columns not needed for modelling
-    # (We kept annotation vectors for EDA later)
-    dataset = dataset.remove_columns(["idx", "unique_id"])
-
-    return dataset
+    return text_series.apply(clean_text)
 
 
-def validate_dataset(dataset: DatasetDict, num_samples_to_print: int = 3):
+def preprocess_for_bert(text_series: pd.Series) -> pd.Series:
     """
-    Perform integrity checks after preprocessing.
+    Minimal preprocessing for transformer-based models.
 
-    Checks:
-    - Empty cleaned text count
-    - Label distribution
-    - Print sample cleaned texts for verification
+    BERT-like models require minimal cleaning since:
+        - Tokenisation handles casing
+        - Special tokens are important
 
-    Parameters:
+    Parameters
+    ----------
+    text_series : pd.Series
+
+    Returns
+    -------
+    pd.Series
+        Lightly stripped text.
+    """
+    return text_series.str.strip()
+
+
+# ─────────────────────────────────────────────
+# 2. Dataset Preparation
+# ─────────────────────────────────────────────
+
+
+def prepare_binary_dataframe(dataset: dict) -> pd.DataFrame:
+    """
+    Convert DatasetDict into a single pandas DataFrame
+    with binary labels.
+
+    Output columns:
+        - text  : original post
+        - label : 0 (non-lonely) or 1 (lonely)
+        - split : train / validation / test
+
+    Assumptions
     -----------
-    dataset : DatasetDict
-    num_samples_to_print : int
-        Number of example cleaned texts to print per split.
+    - dataset is a dictionary with keys:
+        {"train", "validation", "test"}
+    - Each split contains:
+        - 'text'
+        - 'lonely' as one-hot vector [non_lonely, lonely]
+
+    Returns
+    -------
+    pd.DataFrame
+        Combined dataset across all splits.
     """
 
-    for split in dataset.keys():
-        print(f"\n==============================")
-        print(f"Validating split: {split}")
-        print(f"==============================")
+    all_dfs = []
 
-        data = dataset[split]
+    for split_name, split_data in dataset.items():
 
-        # Check for empty cleaned text
-        empty_count = sum(
-            1 for x in data if not x["text_clean"].strip()
-        )
-        print(f"Empty cleaned texts: {empty_count}")
+        # Convert HuggingFace Dataset to pandas
+        df = split_data.to_pandas()
 
-        # Label distribution
-        labels = data["label"]
-        label_counts = {
-            label: labels.count(label)
-            for label in set(labels)
-        }
-        print(f"Label distribution: {label_counts}")
+        # ─────────────────────────────────────────
+        # Integrity checks
+        # ─────────────────────────────────────────
+        if "text" not in df.columns:
+            raise ValueError(f"'text' column missing in {split_name} split.")
 
-        # Print sample cleaned texts
-        print(f"\nSample cleaned texts:")
-        for i in range(min(num_samples_to_print, len(data))):
-            print(f"\nExample {i+1}:")
-            print("Original:", data[i]["text"][:200], "...")
-            print("Cleaned :", data[i]["text_clean"][:200], "...")
+        if "lonely" not in df.columns:
+            raise ValueError(f"'lonely' column missing in {split_name} split.")
+
+        # Validate one-hot structure
+        sample_value = df["lonely"].iloc[0]
+
+        if not isinstance(sample_value, (list, tuple, np.ndarray)):
+            raise ValueError(
+                f"'lonely' column in {split_name} is not a valid one-hot vector."
+            )
+
+        if len(sample_value) != 2:
+            raise ValueError(f"'lonely' column in {split_name} does not have length 2.")
+
+        # Convert one-hot → scalar label
+        df["label"] = df["lonely"].apply(lambda x: int(list(x)[1]))
+
+        # Keep only relevant columns
+        df = df[["text", "label"]]
+        df["split"] = split_name
+
+        all_dfs.append(df)
+
+    # Combine splits
+    full_df = pd.concat(all_dfs, ignore_index=True)
+
+    # ─────────────────────────────────────────
+    # Summary statistics
+    # ─────────────────────────────────────────
+    print(f"\nCombined dataset size: {len(full_df)} samples")
+    print("\nLabel distribution:")
+    print(full_df["label"].value_counts())
+    print("\nLabel proportions:")
+    print(full_df["label"].value_counts(normalize=True))
+
+    return full_df

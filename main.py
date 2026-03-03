@@ -1,29 +1,51 @@
-from src.preprocessing import (
-    load_fig_loneliness,
-    apply_preprocessing,
-    validate_dataset
-)
-from src.eda import(
-    run_eda
-)
+from src.data.loader import load_data, inspect_dataset, dataset_to_dataframe
+from src.eda import run_eda
+from src.preprocessing import prepare_binary_dataframe, preprocess_for_classical
 
-ROOT = "./dataset/"
+
+def print_stage(title: str):
+    print("\n" + "═" * 70)
+    print(title)
+    print("═" * 70)
 
 
 def main():
-    dataset = load_fig_loneliness(ROOT)
 
-    print("\nDataset successfully loaded.")
-    print(dataset)
+    # ─────────────────────────────────────────
+    # STAGE 1: Data Loading
+    # ─────────────────────────────────────────
+    print_stage("STAGE 1: DATA LOADING")
 
-    print("\nColumns in train split:")
-    print(dataset["train"].column_names)
+    dataset = load_data()  # Automatically handles local vs HF
+    inspect_dataset(dataset)
 
-    processed_dataset = apply_preprocessing(dataset)
+    print("\n✅ Data loading complete.")
 
-    validate_dataset(processed_dataset, num_samples_to_print=2)
+    # ─────────────────────────────────────────
+    # STAGE 2: PREPROCESSING
+    # ─────────────────────────────────────────
+    print_stage("STAGE 2: PREPROCESSING")
 
-    run_eda(processed_dataset)
+    df = prepare_binary_dataframe(dataset)
+
+    df["clean_text"] = preprocess_for_classical(df["text"])
+
+    print("\nSample cleaned text:")
+    print(df["clean_text"].iloc[0][:300])
+
+    print("\n✅ Preprocessing complete.")
+
+    # ─────────────────────────────────────────
+    # STAGE 3: EXPLORATORY DATA ANALYSIS
+    # ─────────────────────────────────────────
+    print_stage("STAGE 3: EXPLORATORY DATA ANALYSIS")
+
+    run_eda(df[["text", "label"]].copy())
+
+    print("\n🎯 EDA completed successfully.")
+
+    print("\nPipeline execution up to EDA finished ✔")
+
 
 if __name__ == "__main__":
     main()
