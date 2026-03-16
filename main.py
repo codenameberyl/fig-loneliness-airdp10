@@ -1,6 +1,7 @@
 from src.data.loader import load_data, inspect_dataset, dataset_to_dataframe
 from src.eda import run_eda
 from src.preprocessing import prepare_binary_dataframe, preprocess_for_classical
+from src.models import train_and_evaluate_models
 
 
 def print_stage(title: str):
@@ -45,6 +46,16 @@ def main():
     print("\n🎯 EDA completed successfully.")
 
     print("\nPipeline execution up to EDA finished ✔")
+
+    # ─────────────────────────────────────────
+    # STAGE 4: MODEL TRAINING
+    # ─────────────────────────────────────────
+    print_stage("STAGE 4: MODEL TRAINING")
+
+    results = train_and_evaluate_models(df)
+
+    print("\nModel training and evaluation complete.")
+    print(results)  
 
 
 if __name__ == "__main__":

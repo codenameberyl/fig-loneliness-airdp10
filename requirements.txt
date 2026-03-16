@@ -1,6 +1,5 @@
 datasets
 transformers
-transformers["torch"]
 pandas
 matplotlib
 seaborn
