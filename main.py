@@ -1,61 +1,71 @@
-from src.data.loader import load_data, inspect_dataset, dataset_to_dataframe
+import logging
+import time
+
+from datasets import load_from_disk
+
+from src.results import cache_exists, load_joblib
+from src.config import RESULTS_SUBDIRS
+from src.dataset_loader import load_dataset
 from src.eda import run_eda
-from src.preprocessing import prepare_binary_dataframe, preprocess_for_classical
-from src.models import train_and_evaluate_models
+from src.preprocessing import preprocess_dataset
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-8s | %(name)s — %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger(__name__)
+
+PREPROCESS_CACHE = RESULTS_SUBDIRS["cache"] / "preprocessed_dataset"
 
 
-def print_stage(title: str):
-    print("\n" + "═" * 70)
-    print(title)
-    print("═" * 70)
+def _banner(stage: str) -> None:
+    width = 60
+    logger.info("─" * width)
+    logger.info(f"  STAGE: {stage.upper()}")
+    logger.info("─" * width)
 
 
 def main():
+    logger.info("=" * 60)
+    logger.info("  FIG-Loneliness NLP Pipeline")
+    logger.info("=" * 60)
 
-    # ─────────────────────────────────────────
-    # STAGE 1: Data Loading
-    # ─────────────────────────────────────────
-    print_stage("STAGE 1: DATA LOADING")
+    t0 = time.time()
 
-    dataset = load_data()  # Automatically handles local vs HF
-    inspect_dataset(dataset)
+    dataset = None
+    processed = None
+    features_bundle = None
+    all_results = None
+    best_rep = None
+    best_model = None
 
-    print("\n✅ Data loading complete.")
+    #  Load
+    _banner("load")
+    dataset = load_dataset()
 
-    # ─────────────────────────────────────────
-    # STAGE 2: PREPROCESSING
-    # ─────────────────────────────────────────
-    print_stage("STAGE 2: PREPROCESSING")
+    #  Preprocess
+    _banner("preprocess")
+    processed = preprocess_dataset(dataset)
 
-    df = prepare_binary_dataframe(dataset)
+    #  EDA
+    _banner("eda")
+    if processed is None:
+        if PREPROCESS_CACHE.exists():
+            processed = load_from_disk(PREPROCESS_CACHE)
+        else:
+            processed = preprocess_dataset(load_dataset())
+    run_eda(processed)
 
-    df["clean_text"] = preprocess_for_classical(df["text"])
+   
 
-    print("\nSample cleaned text:")
-    print(df["clean_text"].iloc[0][:300])
-
-    print("\n✅ Preprocessing complete.")
-
-    # ─────────────────────────────────────────
-    # STAGE 3: EXPLORATORY DATA ANALYSIS
-    # ─────────────────────────────────────────
-    print_stage("STAGE 3: EXPLORATORY DATA ANALYSIS")
-
-    run_eda(df[["text", "label"]].copy())
-
-    print("\n🎯 EDA completed successfully.")
-
-    print("\nPipeline execution up to EDA finished ✔")
-
-    # ─────────────────────────────────────────
-    # STAGE 4: MODEL TRAINING
-    # ─────────────────────────────────────────
-    print_stage("STAGE 4: MODEL TRAINING")
-
-    results = train_and_evaluate_models(df)
-
-    print("\nModel training and evaluation complete.")
-    print(results)  
+    # Done
+    elapsed = time.time() - t0
+    logger.info("=" * 60)
+    logger.info(f"  Pipeline complete in {elapsed:.1f}s")
+    if best_rep and best_model:
+        logger.info(f"  Best model : {best_rep} / {best_model}")
+    logger.info("=" * 60)
 
 
 if __name__ == "__main__":
