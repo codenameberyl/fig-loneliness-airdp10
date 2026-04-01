@@ -1,3 +1,6 @@
+# Dataset Folder (Replaced by cached datasets in `results/preprocessed_datasets/`)
+datasets/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
