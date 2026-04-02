@@ -1,162 +1,325 @@
 """
-Model training and evaluation for loneliness self-disclosure classification.
+Model training for FIG-Loneliness.
 
-Phases:
-1. TF-IDF only
-2. TF-IDF + Linguistic features (first-person ratio, social words, question marks, sentence length, sentiment)
+For each text representation × each classical classifier, we:
+  1. Train on the training split
+  2. Evaluate on the validation split
+  3. Save the trained model results
 
-Models:
-- Logistic Regression
-- Linear SVM
-- Random Forest
+Additionally, DistilBERT is fine-tuned end-to-end.
 
-Evaluation metrics:
-- Accuracy
-- Precision
-- Recall
-- F1-score
+Results are aggregated in a comparison table saved as JSON.
 """
 
-import pandas as pd
+import logging
+from typing import Any
+
 import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
-from sklearn.linear_model import LogisticRegression
-from sklearn.svm import LinearSVC
+from datasets import DatasetDict
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    accuracy_score,
+    precision_recall_fscore_support,
+    roc_auc_score,
+)
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import LinearSVC
+import torch
+from transformers import (
+    AutoModelForSequenceClassification,
+    EarlyStoppingCallback,
+    AutoTokenizer,
+    Trainer,
+    TrainingArguments,
+)
 
-from src.feature_extractors import extract_linguistic_features
+from .config import (
+    BERT_BATCH_EVAL,
+    BERT_BATCH_TRAIN,
+    BERT_EPOCHS,
+    BERT_LR,
+    BERT_MAX_LENGTH,
+    BERT_MODEL_NAME,
+    BERT_WARMUP_RATIO,
+    BERT_WEIGHT_DECAY,
+    LR_PARAMS,
+    RF_PARAMS,
+    SVM_PARAMS,
+    RESULTS_SUBDIRS,
+)
+from .results import cache_exists, load_joblib, save_joblib, save_json, record_step
+
+logger = logging.getLogger(__name__)
+
+# Metrics helpers
+def _compute_metrics_from_preds(y_true, y_pred, y_proba=None) -> dict:
+    p, r, f1, _ = precision_recall_fscore_support(y_true, y_pred, average="binary")
+    acc = accuracy_score(y_true, y_pred)
+    result = {
+        "accuracy": round(float(acc), 4),
+        "precision": round(float(p), 4),
+        "recall": round(float(r), 4),
+        "f1": round(float(f1), 4),
+    }
+    if y_proba is not None:
+        try:
+            result["roc_auc"] = round(float(roc_auc_score(y_true, y_proba)), 4)
+        except Exception:
+            pass
+    return result
 
 
-# ─────────────────────────────────────────────
-# 1. TF-IDF Feature Builder
-# ─────────────────────────────────────────────
-def build_tfidf_features(train_texts, val_texts, test_texts):
-    """
-    Transform text into TF-IDF vectors for train, validation, and test sets.
-    """
-    vectorizer = TfidfVectorizer(max_features=10000, ngram_range=(1, 2), stop_words="english")
-
-    X_train = vectorizer.fit_transform(train_texts)
-    X_val = vectorizer.transform(val_texts)
-    X_test = vectorizer.transform(test_texts)
-
-    return X_train, X_val, X_test, vectorizer
+def _hf_compute_metrics(eval_pred):
+    """HuggingFace Trainer compatible metrics function — includes ROC-AUC via softmax."""
+    logits, labels = eval_pred
+    preds = np.argmax(logits, axis=1)
+    # Stable softmax: subtract row max before exp to avoid overflow
+    shifted = logits - logits.max(axis=1, keepdims=True)
+    probs = np.exp(shifted) / np.sum(np.exp(shifted), axis=1, keepdims=True)
+    positive_scores = probs[:, 1]
+    return _compute_metrics_from_preds(labels, preds, y_proba=positive_scores)
 
 
-# ─────────────────────────────────────────────
-# 2. Combine TF-IDF and Linguistic Features
-# ─────────────────────────────────────────────
-def combine_with_linguistic_features(X_tfidf, texts):
-    """
-    Extract linguistic features and concatenate to TF-IDF sparse matrix
-    """
-    ling_feats = extract_linguistic_features(texts)  # shape: (n_samples, 5)
-    return np.hstack([X_tfidf.toarray(), ling_feats])
-
-
-# ─────────────────────────────────────────────
-# 3. Model Evaluation
-# ─────────────────────────────────────────────
-def evaluate_model(model, X, y, model_name, split_name="Validation"):
-    """
-    Evaluate a trained model on any split.
-    Returns metrics dictionary.
-    """
-    predictions = model.predict(X)
-
-    accuracy = accuracy_score(y, predictions)
-    precision = precision_score(y, predictions)
-    recall = recall_score(y, predictions)
-    f1 = f1_score(y, predictions)
-
-    print("\n" + "=" * 60)
-    print(f"{split_name} Metrics for {model_name}")
-    print("=" * 60)
-    print(f"Accuracy  : {accuracy:.4f}")
-    print(f"Precision : {precision:.4f}")
-    print(f"Recall    : {recall:.4f}")
-    print(f"F1-score  : {f1:.4f}")
-    print("\nClassification Report:")
-    print(classification_report(y, predictions, digits=4))
-
+# Classical classifier factory
+def _make_classical_models() -> dict:
     return {
-        "model": model_name,
-        "accuracy": accuracy,
-        "precision": precision,
-        "recall": recall,
-        "f1": f1
+        "logistic_regression": LogisticRegression(**LR_PARAMS),
+        "svm": make_pipeline(
+            StandardScaler(with_mean=False),
+            LinearSVC(**SVM_PARAMS),
+        ),
+        "random_forest": RandomForestClassifier(**RF_PARAMS),
     }
 
 
-# ─────────────────────────────────────────────
-# 4. Train and Evaluate All Models
-# ─────────────────────────────────────────────
-def train_and_evaluate_models(df, use_linguistic_features=False):
+def _get_proba(model, X) -> np.ndarray | None:
+    """Return probability estimates for the positive class if supported."""
+    if hasattr(model, "predict_proba"):
+        return model.predict_proba(X)[:, 1]
+    if hasattr(model, "decision_function"):
+        return model.decision_function(X)
+    return None
+
+
+# Train one representation × all classifiers
+def _train_representation(
+    rep_name: str,
+    rep_bundle: dict,
+) -> list[dict]:
+    """Train all classical classifiers on a single representation."""
+    if not rep_bundle:
+        logger.warning(
+            f"Skipping '{rep_name}' — bundle is empty (dependency missing?)."
+        )
+        return []
+
+    X_train, y_train = rep_bundle["train"]
+    X_val, y_val = rep_bundle["val"]
+    X_test, y_test = rep_bundle.get("test", (None, None))
+
+    rows = []
+    for model_name, model in _make_classical_models().items():
+        cache_key = f"{rep_name}_{model_name}.joblib"
+
+        if cache_exists(cache_key):
+            logger.info(f"  Loading cached {rep_name}/{model_name}...")
+            model = load_joblib(cache_key)
+        else:
+            logger.info(f"  Training {rep_name}/{model_name}...")
+            model.fit(X_train, y_train)
+            save_joblib(cache_key, model)
+
+        preds = model.predict(X_val)
+        proba = _get_proba(model, X_val)
+        val_metrics = _compute_metrics_from_preds(y_val, preds, proba)
+
+        row = {
+            "representation": rep_name,
+            "model": model_name,
+            "split": "validation",
+            **val_metrics,
+        }
+
+        if X_test is not None:
+            test_preds = model.predict(X_test)
+            test_proba = _get_proba(model, X_test)
+            test_metrics = _compute_metrics_from_preds(y_test, test_preds, test_proba)
+            row.update({f"test_{k}": v for k, v in test_metrics.items()})
+
+        rows.append(row)
+        logger.info(
+            f"  {rep_name}/{model_name} → val F1: {val_metrics['f1']:.4f}"
+            + (f" | test F1: {row.get('test_f1', 'n/a')}")
+        )
+
+    return rows
+
+
+# DistilBERT fine-tuning
+def train_distilbert(dataset: DatasetDict) -> dict:
+    """Fine-tune DistilBERT for binary classification."""
+    bert_output = RESULTS_SUBDIRS["bert"]
+    bert_model_dir = bert_output / "best_model"
+    bert_results_cache = "distilbert_results.joblib"
+
+    if cache_exists(bert_results_cache):
+        logger.info("Loading cached DistilBERT results...")
+        return load_joblib(bert_results_cache)
+
+    logger.info(f"Fine-tuning {BERT_MODEL_NAME}...")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    logger.info(f"Device: {device}")
+
+    tokenizer = AutoTokenizer.from_pretrained(BERT_MODEL_NAME)
+
+    def _tokenize(batch):
+        return tokenizer(
+            batch["cleaned"],
+            padding="max_length",
+            truncation=True,
+            max_length=BERT_MAX_LENGTH,
+        )
+
+    tokenized = dataset.map(_tokenize, batched=True, batch_size=128)
+    tokenized = tokenized.rename_column("label", "labels")
+    keep_cols = ["input_ids", "attention_mask", "labels"]
+    tokenized.set_format("torch", columns=keep_cols)
+
+    model = AutoModelForSequenceClassification.from_pretrained(
+        BERT_MODEL_NAME, num_labels=2
+    )
+
+    # Calculate warmup steps from warmup ratio
+    batch_size = BERT_BATCH_TRAIN if device == "cuda" else 8
+    total_steps = len(tokenized["train"]) * BERT_EPOCHS // batch_size
+    warmup_steps = int(total_steps * BERT_WARMUP_RATIO)
+
+    training_args = TrainingArguments(
+        output_dir=str(bert_output),
+        eval_strategy="epoch",
+        save_strategy="epoch",
+        per_device_train_batch_size=batch_size,
+        per_device_eval_batch_size=BERT_BATCH_EVAL if device == "cuda" else 16,
+        num_train_epochs=BERT_EPOCHS,
+        learning_rate=BERT_LR,
+        weight_decay=BERT_WEIGHT_DECAY,
+        warmup_steps=warmup_steps,
+        load_best_model_at_end=True,
+        metric_for_best_model="f1",
+        greater_is_better=True,
+        fp16=(device == "cuda"),
+        report_to="none",
+        logging_steps=100,
+    )
+
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=tokenized["train"],
+        eval_dataset=tokenized["validation"],
+        compute_metrics=_hf_compute_metrics,
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=2)],
+    )
+
+    trainer.train()
+    val_metrics_raw = trainer.evaluate(tokenized["validation"])
+
+    val_metrics = {
+        k.replace("eval_", ""): v
+        for k, v in val_metrics_raw.items()
+        if k.startswith("eval_") and k != "eval_loss"
+    }
+
+    row = {
+        "representation": "distilbert",
+        "model": "distilbert",
+        "split": "validation",
+        **{k: round(float(v), 4) for k, v in val_metrics.items()},
+    }
+
+    test_preds_output = trainer.predict(tokenized["test"])
+    test_preds = np.argmax(test_preds_output.predictions, axis=1)
+    labels = test_preds_output.label_ids
+    probs = np.exp(test_preds_output.predictions) / np.sum(
+        np.exp(test_preds_output.predictions), axis=1, keepdims=True
+    )
+    test_metrics = _compute_metrics_from_preds(labels, test_preds, probs[:, 1])
+    row.update({f"test_{k}": v for k, v in test_metrics.items()})
+
+    # Save model and tokenizer
+    bert_model_dir.mkdir(parents=True, exist_ok=True)
+    model.save_pretrained(str(bert_model_dir))
+    tokenizer.save_pretrained(str(bert_model_dir))
+    logger.info(f"DistilBERT saved → {bert_model_dir}")
+
+    result = {"row": row, "trainer": trainer, "tokenizer": tokenizer}
+    save_joblib(bert_results_cache, {"row": row})  # don't cache trainer
+
+    logger.info(f"DistilBERT val F1: {row.get('f1', 'n/a')}")
+    return result
+
+
+# Aggregate comparison
+def _best_per_representation(results: list[dict]) -> list[dict]:
+    """Return the best-F1 model for each representation."""
+    best: dict[str, dict] = {}
+    for row in results:
+        rep = row["representation"]
+        if rep not in best or row["f1"] > best[rep]["f1"]:
+            best[rep] = row
+    return list(best.values())
+
+
+# Train and Compare
+def train_and_compare(
+    features_bundle: dict,
+    dataset: DatasetDict,
+) -> tuple[str, str, list[dict]]:
     """
-    Train baseline models on TRAIN, evaluate on VALIDATION,
-    then test best model on TEST split.
+    Train all representation × model combinations and return results.
 
-    Args:
-        use_linguistic_features (bool): If True, concatenate linguistic features to TF-IDF
+    Returns
+    -------
+    (best_representation, best_model_name, all_results)
     """
+    if cache_exists("all_model_results.joblib"):
+        logger.info("Loading cached model results...")
+        all_results = load_joblib("all_model_results.joblib")
+        record_step("train_models", meta={"source": "cache"})
+    else:
+        all_results: list[dict] = []
 
-    # Split dataset
-    train_df = df[df["split"] == "train"]
-    val_df   = df[df["split"] == "validation"]
-    test_df  = df[df["split"] == "test"]
+        for rep_name, rep_bundle in features_bundle.items():
+            logger.info(f"── Representation: {rep_name} ──")
+            rows = _train_representation(rep_name, rep_bundle)
+            all_results.extend(rows)
 
-    # Extract texts and labels
-    X_train_text, y_train = train_df["clean_text"], train_df["label"].to_numpy()
-    X_val_text, y_val     = val_df["clean_text"], val_df["label"].to_numpy()
-    X_test_text, y_test   = test_df["clean_text"], test_df["label"].to_numpy()
+        # DistilBERT
+        bert_result = train_distilbert(dataset)
+        if bert_result and "row" in bert_result:
+            all_results.append(bert_result["row"])
 
-    # TF-IDF features
-    X_train, X_val, X_test, vectorizer = build_tfidf_features(X_train_text, X_val_text, X_test_text)
+        save_joblib("all_model_results.joblib", all_results)
+        save_json("all_model_results.json", all_results)
+        record_step("train_models", meta={"n_experiments": len(all_results)})
 
-    # Optionally add linguistic features
-    if use_linguistic_features:
-        print("\nAdding linguistic features to TF-IDF vectors...")
-        X_train = combine_with_linguistic_features(X_train, X_train_text)
-        X_val   = combine_with_linguistic_features(X_val, X_val_text)
-        X_test  = combine_with_linguistic_features(X_test, X_test_text)
+    # Find overall best by validation F1
+    if not all_results:
+        raise RuntimeError("No model results found — check dependencies.")
 
-    # Define models
-    models = [
-        ("Logistic Regression", LogisticRegression(max_iter=200)),
-        ("Linear SVM", LinearSVC()),
-        ("Random Forest", RandomForestClassifier(n_estimators=200, random_state=42)),
-    ]
+    best = max(all_results, key=lambda r: r.get("f1", 0))
+    best_rep = best["representation"]
+    best_model = best["model"]
 
-    validation_results = []
+    # Save summary: best per representation
+    best_per_rep = _best_per_representation(all_results)
+    save_json("best_per_representation.json", best_per_rep)
 
-    # ────────────────
-    # Train on TRAIN, Evaluate on VALIDATION
-    # ────────────────
-    for name, model in models:
-        print("\n" + "=" * 60)
-        print(f"Training {name} on TRAIN set")
-        print("=" * 60)
-
-        model.fit(X_train, y_train)
-        result = evaluate_model(model, X_val, y_val, name, split_name="Validation")
-        validation_results.append(result)
-
-    validation_df = pd.DataFrame(validation_results)
-
-    # Select best model based on F1 on validation
-    best_model_name = validation_df.sort_values("f1", ascending=False).iloc[0]["model"]
-    best_model = dict(models)[best_model_name]
-
-    print("\nBest model on validation set:", best_model_name)
-
-    # ────────────────
-    # Retrain best model on TRAIN, Evaluate on TEST
-    # ────────────────
-    best_model.fit(X_train, y_train)
-    test_result = evaluate_model(best_model, X_test, y_test, best_model_name, split_name="Test")
-
-    print("\nValidation Comparison:")
-    print(validation_df.sort_values("f1", ascending=False))
-
-    return validation_df, test_result, best_model, vectorizer
+    logger.info(
+        f"Best overall: {best_rep}/{best_model} — "
+        f"val F1: {best.get('f1', 'n/a')}, "
+        f"val AUC: {best.get('roc_auc', 'n/a')}"
+    )
+    return best_rep, best_model, all_results
