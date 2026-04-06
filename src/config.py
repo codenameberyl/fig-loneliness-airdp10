@@ -1,5 +1,3 @@
-
-
 import os
 from pathlib import Path
 
@@ -29,8 +27,6 @@ RESULTS_SUBDIRS = {
 # Preprocessing
 SPACY_MODEL = "en_core_web_sm"
 SPACY_DISABLED = ["ner", "parser"]
-
-
 
 # Linguistic features
 FIRST_PERSON_PRONOUNS = frozenset({"i", "me", "my", "mine", "myself"})
@@ -74,8 +70,6 @@ EMOTION_WORDS = frozenset(
 NEGATIONS = frozenset(
     {"no", "not", "never", "none", "nobody", "nothing", "neither", "nor", "n't"}
 )
-
-
 
 # EDA
 EDA_TOP_N_GRAMS = 20
@@ -126,3 +120,8 @@ BERT_EPOCHS = 3
 BERT_WEIGHT_DECAY = 0.01
 BERT_WARMUP_RATIO = 0.1
 BERT_LR = 2e-5
+
+# API
+API_TITLE = "FIG-Loneliness NLP API"
+API_VERSION = "1.0.0"
+API_PREFIX = "/api"

@@ -1,5 +1,3 @@
-
-
 import json
 import math
 import joblib
@@ -16,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 # Initialisation
 def ensure_results() -> None:
-    #Create all results subdirectories if they don't exist
+    """Create all results subdirectories if they don't exist."""
     for name, path in RESULTS_SUBDIRS.items():
         path.mkdir(parents=True, exist_ok=True)
         logger.debug(f"Ensured results dir: {path}")
@@ -24,7 +22,7 @@ def ensure_results() -> None:
 
 # JSON helpers
 def save_json(name: str, data: Any) -> Path:
-    #Persist *data* as pretty-printed JSON under results/json/
+    """Persist *data* as pretty-printed JSON under results/json/."""
     ensure_results()
     path = RESULTS_SUBDIRS["json"] / name
     with open(path, "w", encoding="utf-8") as f:
@@ -34,7 +32,7 @@ def save_json(name: str, data: Any) -> Path:
 
 
 def load_json(name: str) -> Any:
-    #Load a JSON result by filename
+    """Load a JSON result by filename."""
     path = RESULTS_SUBDIRS["json"] / name
     if not path.exists():
         raise FileNotFoundError(f"JSON result not found: {path}")
@@ -48,7 +46,7 @@ def json_exists(name: str) -> bool:
 
 # Joblib (binary cache) helpers
 def save_joblib(name: str, obj: Any) -> Path:
-    #Persist a Python object via joblib under results/cache/
+    """Persist a Python object via joblib under results/cache/."""
     ensure_results()
     path = RESULTS_SUBDIRS["cache"] / name
     joblib.dump(obj, path)
@@ -57,7 +55,7 @@ def save_joblib(name: str, obj: Any) -> Path:
 
 
 def load_joblib(name: str) -> Any:
-    #Load a joblib result by filename.
+    """Load a joblib result by filename."""
     path = RESULTS_SUBDIRS["cache"] / name
     if not path.exists():
         raise FileNotFoundError(f"Joblib result not found: {path}")
@@ -70,13 +68,13 @@ def cache_exists(name: str) -> bool:
 
 # Plot helpers
 def plot_path(name: str) -> Path:
-    #Return the full path for a named plot file (does NOT create file)
+    """Return the full path for a named plot file (does NOT create file)."""
     ensure_results()
     return RESULTS_SUBDIRS["plots"] / name
 
 
 def list_plots() -> list[str]:
-    #Return filenames of all saved plots
+    """Return filenames of all saved plots."""
     d = RESULTS_SUBDIRS["plots"]
     if not d.exists():
         return []
@@ -88,7 +86,7 @@ _STATE_FILE = "pipeline_state.json"
 
 
 def record_step(step: str, status: str = "done", meta: Optional[dict] = None) -> None:
-    #Record that a pipeline step completed (or failed)
+    """Record that a pipeline step completed (or failed)."""
     state = load_json(_STATE_FILE) if json_exists(_STATE_FILE) else {}
     state[step] = {
         "status": status,
@@ -99,24 +97,26 @@ def record_step(step: str, status: str = "done", meta: Optional[dict] = None) ->
 
 
 def get_pipeline_state() -> dict:
+    """Return the current pipeline state dictionary."""
     return load_json(_STATE_FILE) if json_exists(_STATE_FILE) else {}
 
 
 def step_done(step: str) -> bool:
+    """Return True if a pipeline step has previously completed successfully."""
     state = get_pipeline_state()
     return state.get(step, {}).get("status") == "done"
 
 
 # Internal helpers
 def _sanitise_float(v: float) -> Any:
-    #Return None for non-finite floats so JSON stays compliant."""
+    """Return None for non-finite floats so JSON stays compliant."""
     if math.isnan(v) or math.isinf(v):
         return None
     return v
 
 
 def _json_serialise(obj: Any) -> Any:
-    #Fallback JSON serialiser — handles numpy types and non-finite floats
+    """Fallback JSON serialiser — handles numpy types and non-finite floats."""
     if isinstance(obj, float):
         return _sanitise_float(obj)
     if isinstance(obj, np.integer):
@@ -134,7 +134,11 @@ def _json_serialise(obj: Any) -> Any:
 
 
 def sanitise_for_json(obj: Any) -> Any:
-
+    """
+    Recursively walk a nested structure and replace any non-finite float
+    (inf, -inf, nan) with None so the object is safe to serialise.
+    Call this before save_json() when data may contain such values.
+    """
     if isinstance(obj, float):
         return None if (math.isnan(obj) or math.isinf(obj)) else obj
     if isinstance(obj, dict):

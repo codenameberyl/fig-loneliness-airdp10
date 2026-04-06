@@ -43,7 +43,7 @@ LINGUISTIC_FEATURES = [
 
 # Helpers
 def _split_by_label(split_data, col: str) -> tuple[list, list]:
-    #Return values_non_lonely, values_lonely for a column in a spli
+    # Return values_non_lonely, values_lonely for a column in a spli
     non_lonely, lonely = [], []
     for label, val in zip(split_data["label"], split_data[col]):
         if label == 0:
@@ -54,7 +54,7 @@ def _split_by_label(split_data, col: str) -> tuple[list, list]:
 
 
 def _describe(values: list[float]) -> dict:
-    #Basic descriptive stats for a list of numbers
+    # Basic descriptive stats for a list of numbers
     a = np.array(values, dtype=float)
     return {
         "mean": float(np.mean(a)),
@@ -295,7 +295,7 @@ def eda_ngrams(dataset: DatasetDict, top_n: int = EDA_TOP_N_GRAMS) -> dict:
 
 #  Word clouds
 def eda_wordclouds(dataset: DatasetDict) -> None:
-    #Attempt to generate word clouds; skip gracefully if wordcloud not installed
+    # Attempt to generate word clouds; skip gracefully if wordcloud not installed
     logger.info("EDA: word clouds")
 
     train = dataset["train"]

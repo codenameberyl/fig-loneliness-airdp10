@@ -57,7 +57,7 @@ nlp = _load_spacy()
 
 # Text cleaning
 def clean_text(text: str) -> str:
-    #Return a normalised, lowercased, cleaned string
+    # Return a normalised, lowercased, cleaned string
     if not isinstance(text, str):
         text = "" if text is None else str(text)
 
@@ -79,7 +79,7 @@ def clean_text(text: str) -> str:
 
 # Token / linguistic feature extraction
 def _extract_tokens(doc: spacy.tokens.Doc) -> dict:
-    #Extract token lists, POS tags, and linguistic counts from a spaCy doc
+    # Extract token lists, POS tags, and linguistic counts from a spaCy doc
     tokens_all: list[str] = []
     tokens_no_stop: list[str] = []
     lemmas: list[str] = []
@@ -133,7 +133,7 @@ def _extract_tokens(doc: spacy.tokens.Doc) -> dict:
 
 # Batch mapping function
 def _preprocess_batch(batch: dict) -> dict:
-    #Process a batch of raw examples. Used with dataset.map(batched=True)
+    # Process a batch of raw examples. Used with dataset.map(batched=True)
     cleaned_texts = [clean_text(t) for t in batch["text"]]
     docs = list(nlp.pipe(cleaned_texts, batch_size=64))
 
