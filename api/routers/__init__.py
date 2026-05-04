@@ -1,3 +1,3 @@
-from . import eda, models, pipeline, predict
+from . import eda, models, predict
 
-__all__ = ["eda", "models", "pipeline", "predict"]
+__all__ = ["eda", "models", "predict"]
