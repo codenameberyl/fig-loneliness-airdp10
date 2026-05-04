@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 def seed_everything(seed: int = RANDOM_SEED) -> None:
     """
     Set random seeds for Python, NumPy, and PyTorch (if available).
+
     Parameters
     ----------
     seed : int
