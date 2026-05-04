@@ -8,10 +8,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 
-# ──────────────────────────────────────────────
 # Pipeline
-# ──────────────────────────────────────────────
-
 class PipelineRunRequest(BaseModel):
     force_reprocess: bool = Field(False, description="Re-run even if cached results exist")
     eval_on_test: bool = Field(True, description="Evaluate best model on test split")
@@ -29,12 +26,8 @@ class PipelineStatusResponse(BaseModel):
     pending_steps: list[str]
 
 
-# ──────────────────────────────────────────────
 # Dataset / EDA
-# ──────────────────────────────────────────────
-
 class SplitStats(BaseModel):
-    """Flexible schema — accepts both n_* keys (from dataset_loader JSON) and plain keys."""
     total: int = None
     lonely: int = None
     non_lonely: int = None
@@ -81,10 +74,7 @@ class NGramsResponse(BaseModel):
     lonely_bigrams: list[NGramEntry]
 
 
-# ──────────────────────────────────────────────
 # Models
-# ──────────────────────────────────────────────
-
 class ModelResult(BaseModel):
     representation: str
     model: str
@@ -94,7 +84,6 @@ class ModelResult(BaseModel):
     recall: Optional[float] = None
     f1: Optional[float] = None
     roc_auc: Optional[float] = None
-    # Optional test metrics
     test_accuracy: Optional[float] = None
     test_precision: Optional[float] = None
     test_recall: Optional[float] = None
@@ -118,10 +107,7 @@ class RepresentationSummary(BaseModel):
     n_features: Optional[int] = None
 
 
-# ──────────────────────────────────────────────
 # Prediction
-# ──────────────────────────────────────────────
-
 class PredictRequest(BaseModel):
     text: str = Field(..., min_length=10, description="Text to classify")
 
@@ -130,15 +116,16 @@ class PredictResponse(BaseModel):
     label: int = Field(..., description="0 = non-lonely, 1 = lonely")
     label_name: str
     confidence: float = Field(..., ge=0.0, le=1.0)
+    threshold_used: float = Field(
+        ...,
+        description="Decision threshold applied (ROC-derived or 0.5 default)",
+    )
     representation: str
     model: str
     input_text: str
 
 
-# ──────────────────────────────────────────────
 # General
-# ──────────────────────────────────────────────
-
 class StatusResponse(BaseModel):
     status: str
     version: str

@@ -1,6 +1,9 @@
 import os
 from pathlib import Path
 
+# Reproducibility
+RANDOM_SEED = 42
+
 # Paths
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -97,6 +100,7 @@ SBERT_BATCH_SIZE = 64
 
 # Text Representations (ordered for comparison)
 REPRESENTATIONS = [
+    "linguistic_only",
     "tfidf",
     "tfidf_ling",  # TF-IDF + linguistic features
     "word2vec",
@@ -107,9 +111,9 @@ REPRESENTATIONS = [
 #Classical Models
 CLASSICAL_MODELS = ["logistic_regression", "svm", "random_forest"]
 
-LR_PARAMS = {"max_iter": 3000, "C": 1.0, "solver": "lbfgs"}
+LR_PARAMS = {"max_iter": 3000, "C": 1.0, "solver": "lbfgs",  "random_state": RANDOM_SEED}
 SVM_PARAMS = {"C": 1.0, "max_iter": 10_000, "dual": "auto"}
-RF_PARAMS = {"n_estimators": 200, "n_jobs": -1, "random_state": 42}
+RF_PARAMS = {"n_estimators": 200, "n_jobs": -1, "random_state": RANDOM_SEED}
 
 # DistilBERT
 BERT_MODEL_NAME = "distilbert-base-uncased"

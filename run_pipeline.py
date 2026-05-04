@@ -7,11 +7,13 @@ from src.results import cache_exists, load_joblib
 from src.config import RESULTS_SUBDIRS
 from src.dataset_loader import load_dataset
 from src.eda import run_eda
+from src.error_analysis import run_error_analysis
 from src.evaluation import run_evaluation
 from src.features import build_features
 from src.models import train_and_compare
 from src.preprocessing import preprocess_dataset
 from src.interpretability import run_interpretability
+from src.reproducibility import seed_everything
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,6 +33,9 @@ def _banner(stage: str) -> None:
 
 
 def main():
+    seed_everything()
+
+
     logger.info("=" * 60)
     logger.info("  FIG-Loneliness NLP Pipeline")
     logger.info("=" * 60)
@@ -100,20 +105,12 @@ def main():
 
     run_evaluation(all_results, features_bundle, processed, best_rep, best_model)
 
+    # Error analysis
+    _banner("error analysis")
+    run_error_analysis(all_results, features_bundle, processed)
+
     # Interpret
     _banner("interpret")
-    if all_results is None:
-        if cache_exists("all_model_results.joblib"):
-            all_results = load_joblib("all_model_results.joblib")
-            best = max(all_results, key=lambda r: r.get("f1", 0))
-            best_rep, best_model = best["representation"], best["model"]
-        else:
-            raise RuntimeError("Model results not found.")
-    if features_bundle is None:
-        features_bundle = load_joblib("features_all_representations.joblib")
-    if processed is None:
-        processed = load_from_disk(str(PREPROCESS_CACHE))
-
     run_interpretability(all_results, features_bundle, processed)
 
     # Done
