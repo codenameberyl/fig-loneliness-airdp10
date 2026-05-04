@@ -1,10 +1,5 @@
 """
-Reproducibility — set all random seeds from one place.
-
-Call `seed_everything()` once at the top of run_pipeline.py (and in any
-standalone script) before any data loading or model construction.  All
-downstream modules import RANDOM_SEED from config; this module handles
-the *runtime* seeding so results are deterministic across runs.
+Set all random seeds from one place.
 """
 
 import logging
@@ -21,7 +16,6 @@ logger = logging.getLogger(__name__)
 def seed_everything(seed: int = RANDOM_SEED) -> None:
     """
     Set random seeds for Python, NumPy, and PyTorch (if available).
-
     Parameters
     ----------
     seed : int
@@ -36,10 +30,9 @@ def seed_everything(seed: int = RANDOM_SEED) -> None:
         torch.manual_seed(seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
-            # Deterministic cuDNN ops — slight speed cost, required for full repro
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
     except ImportError:
-        pass  # PyTorch is optional for CPU-only runs
+        pass
 
     logger.info(f"Random seed set to {seed} (Python / NumPy / PyTorch)")
