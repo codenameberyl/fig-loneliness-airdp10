@@ -74,12 +74,8 @@ fig-loneliness/
 
 ## Dataset
 
-The **FIG-Loneliness** dataset (Jiang et al., 2022) is loaded automatically from HuggingFace:
+The **FIG-Loneliness** dataset (Jiang et al., 2022) is cloned from HuggingFace:
 
-```python
-from datasets import load_dataset
-dataset = load_dataset("FIG-Loneliness/FIG-Loneliness")
-```
 
 | Split | Total | Lonely | Non-Lonely |
 |-------|-------|--------|------------|
